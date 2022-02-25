@@ -5,8 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"flag"
+	"fmt"
+	"github.com/glinuz/db2_exporter/common"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +20,7 @@ import (
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/log"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -181,6 +187,11 @@ func (e *Exporter) scrape(ch chan<- prometheus.Metric) {
 
 }
 
+// Close sql connect
+func (e *Exporter) Close() {
+	_ = e.db.Close()
+}
+
 // GetMetricType get type
 func GetMetricType(metricType string, metricsType map[string]string) prometheus.ValueType {
 	var strToPromType = map[string]prometheus.ValueType{
@@ -320,9 +331,7 @@ func GeneratePrometheusMetrics(db *sql.DB, parse func(row map[string]string) err
 			return err
 		}
 	}
-
 	return nil
-
 }
 
 // DB2 gives us some ugly names back. This function cleans things up for Prometheus.
@@ -335,15 +344,104 @@ func cleanName(s string) string {
 	return s
 }
 
+// load config
+func loadConfig() (*common.Conf, error) {
+	path, _ := os.Getwd()
+	path = filepath.Join(path, "conf/conf.yaml")
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("read conf.yaml fail: " + path)
+	}
+	conf := new(common.Conf)
+	err = yaml.Unmarshal(data, conf)
+	if err != nil {
+		return nil, errors.New("umarshal conf.yaml fail")
+	}
+	return conf, nil
+}
+
+func newScrapeHandle() func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		target := r.URL.Query().Get("target")
+		module := r.URL.Query().Get("module")
+		database := r.URL.Query().Get("database")
+		protocol := r.URL.Query().Get("protocol")
+		if target == "" {
+			buf := "uri error, not found target"
+			w.Write([]byte(buf))
+			return
+		}
+
+		if module == "" {
+			buf := "uri error, not found module"
+			w.Write([]byte(buf))
+			return
+		}
+
+		if database == "" {
+			buf := "uri error, not found database"
+			w.Write([]byte(buf))
+			return
+		}
+
+		if protocol == "" {
+			buf := "uri error, not found protocol"
+			w.Write([]byte(buf))
+			return
+		}
+
+		var uid string
+		var pid string
+		var isBreak bool
+		conf, _ := loadConfig()
+		for i := 0; i < len(conf.Modules); i++ {
+			if conf.Modules[i].Name == module {
+				uid = conf.Modules[i].Uid
+				pid = conf.Modules[i].Pid
+				isBreak = true
+				break
+			}
+		}
+
+		if !isBreak {
+			buf := "not found module in conf.yaml"
+			w.Write([]byte(buf))
+			return
+		}
+		temp := strings.Split(target, ":")
+		var hostname string
+		var port string
+		if len(temp) == 2 {
+			hostname = temp[0]
+			port = temp[1]
+		} else {
+			buf := "uri error, target is hostname:port."
+			w.Write([]byte(buf))
+			return
+		}
+
+		dsn := fmt.Sprintf("DATABASE=%s; HOSTNAME=%s; PORT=%s; PROTOCOL=%s; UID=%s; PWD=%s;", database, hostname, port, protocol, uid, pid)
+		//dsn := "DATABASE=sample; HOSTNAME=localhost; PORT=60000; PROTOCOL=TCPIP; UID=db2inst1; PWD=db2inst1;"
+		log.Infoln("Running with DB2_DSN=", dsn)
+
+		exporter := NewExporter(dsn)
+		registry := prometheus.NewRegistry()
+		registry.MustRegister(exporter)
+		gatherers := prometheus.Gatherers{
+			prometheus.DefaultGatherer,
+			registry,
+		}
+
+		h := promhttp.HandlerFor(gatherers, promhttp.HandlerOpts{})
+		h.ServeHTTP(w, r)
+		exporter.Close()
+	}
+}
+
 func main() {
 	flag.Parse()
 	log.Infoln("Starting ibmdb2_exporter " + Version)
 	dsn := *db2dsn
-	if dsn == "" {
-		dsn = "DATABASE=sample; HOSTNAME=localhost; PORT=60000; PROTOCOL=TCPIP; UID=db2inst1; PWD=db2inst1;"
-		log.Infoln("With default DSN config. To change it set ENV DB2_DSN or -dsn flag.")
-	}
-	log.Infoln("Running with DB2_DSN=", dsn)
 	// Load default metrics
 	if _, err := toml.DecodeFile(*defaultFileMetrics, &metricsToScrap); err != nil {
 		log.Errorln(err)
@@ -358,9 +456,16 @@ func main() {
 		}
 		metricsToScrap.Metric = append(metricsToScrap.Metric, additionalMetrics.Metric...)
 	}
-	exporter := NewExporter(dsn)
-	prometheus.MustRegister(exporter)
-	http.Handle(*metricPath, prometheus.Handler())
+
+	if dsn != "" {
+		log.Infoln("Running with DB2_DSN=", dsn)
+		exporter := NewExporter(dsn)
+		prometheus.MustRegister(exporter)
+	} else {
+		http.HandleFunc("/scrape", newScrapeHandle())
+	}
+
+	http.Handle(*metricPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write(landingPage)
 	})

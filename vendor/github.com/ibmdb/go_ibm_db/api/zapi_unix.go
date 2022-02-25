@@ -5,13 +5,16 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// +build darwin linux
+// +build aix darwin linux
 // +build cgo
 
 package api
 
-import "unsafe"
+import (
+	"unsafe"
+)
 
+// #cgo aix LDFLAGS: -ldb2
 // #cgo darwin LDFLAGS: -ldb2
 // #cgo linux LDFLAGS: -ldb2
 // #include <sqlcli1.h>
@@ -129,5 +132,20 @@ func SQLMoreResults(statementHandle SQLHSTMT) (ret SQLRETURN) {
 
 func SQLSetStmtAttr(statementHandle SQLHSTMT, attribute SQLINTEGER, valuePtr SQLPOINTER, stringLength SQLINTEGER) (ret SQLRETURN) {
 	r := C.SQLSetStmtAttrW(C.SQLHSTMT(statementHandle), C.SQLINTEGER(attribute), C.SQLPOINTER(valuePtr), C.SQLINTEGER(stringLength))
+	return SQLRETURN(r)
+}
+
+func SQLCreateDb(connectionHandle SQLHDBC, dbnamePtr *SQLWCHAR, dbnameLen SQLINTEGER, codeSetPtr *SQLWCHAR, codeSetLen SQLINTEGER, modePtr *SQLWCHAR, modeLen SQLINTEGER) (ret SQLRETURN) {
+	r := C.SQLCreateDbW(C.SQLHDBC(connectionHandle), (*C.SQLWCHAR)(unsafe.Pointer(dbnamePtr)), C.SQLINTEGER(dbnameLen), (*C.SQLWCHAR)(unsafe.Pointer(codeSetPtr)), C.SQLINTEGER(codeSetLen), (*C.SQLWCHAR)(unsafe.Pointer(modePtr)), C.SQLINTEGER(modeLen))
+	return SQLRETURN(r)
+}
+
+func SQLDropDb(connectionHandle SQLHDBC, dbnamePtr *SQLWCHAR, dbnameLen SQLINTEGER) (ret SQLRETURN) {
+	r := C.SQLDropDbW(C.SQLHDBC(connectionHandle), (*C.SQLWCHAR)(unsafe.Pointer(dbnamePtr)), C.SQLINTEGER(dbnameLen))
+	return SQLRETURN(r)
+}
+
+func SQLExecDirect(statementHandle SQLHSTMT, statementText *SQLWCHAR, textLength SQLINTEGER) (ret SQLRETURN) {
+	r := C.SQLExecDirectW(C.SQLHSTMT(statementHandle), (*C.SQLWCHAR)(unsafe.Pointer(statementText)), C.SQLINTEGER(textLength))
 	return SQLRETURN(r)
 }
