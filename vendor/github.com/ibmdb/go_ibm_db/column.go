@@ -83,7 +83,7 @@ func NewColumn(h api.SQLHSTMT, idx int) (Column, error) {
 		return NewBindableColumn(b, api.SQL_C_LONG, 4), nil
 	case api.SQL_BIGINT:
 		return NewBindableColumn(b, api.SQL_C_SBIGINT, 8), nil
-	case api.SQL_NUMERIC, api.SQL_DECIMAL, api.SQL_FLOAT, api.SQL_REAL, api.SQL_DOUBLE:
+	case api.SQL_NUMERIC, api.SQL_FLOAT, api.SQL_REAL, api.SQL_DOUBLE:
 		return NewBindableColumn(b, api.SQL_C_DOUBLE, 8), nil
 	case api.SQL_TYPE_TIMESTAMP:
 		var v api.SQL_TIMESTAMP_STRUCT
@@ -94,20 +94,22 @@ func NewColumn(h api.SQLHSTMT, idx int) (Column, error) {
 	case api.SQL_TYPE_TIME:
 		var v api.SQL_TIME_STRUCT
 		return NewBindableColumn(b, api.SQL_C_TYPE_TIME, int(unsafe.Sizeof(v))), nil
-	case api.SQL_CHAR, api.SQL_VARCHAR, api.SQL_CLOB:
+	case api.SQL_CHAR, api.SQL_VARCHAR, api.SQL_CLOB, api.SQL_DECFLOAT, api.SQL_DECIMAL:
 		return NewVariableWidthColumn(b, api.SQL_C_CHAR, size), nil
 	case api.SQL_WCHAR, api.SQL_WVARCHAR:
 		return NewVariableWidthColumn(b, api.SQL_C_WCHAR, size), nil
 	case api.SQL_BINARY, api.SQL_VARBINARY, api.SQL_BLOB:
 		return NewVariableWidthColumn(b, api.SQL_C_BINARY, size), nil
 	case api.SQL_LONGVARCHAR:
-		return NewVariableWidthColumn(b, api.SQL_C_CHAR, 0), nil
+		return NewVariableWidthColumn(b, api.SQL_C_CHAR, size), nil
 	case api.SQL_WLONGVARCHAR, api.SQL_SS_XML:
-		return NewVariableWidthColumn(b, api.SQL_C_WCHAR, 0), nil
+		return NewVariableWidthColumn(b, api.SQL_C_WCHAR, size), nil
 	case api.SQL_LONGVARBINARY:
 		return NewVariableWidthColumn(b, api.SQL_C_BINARY, 0), nil
 	case api.SQL_DBCLOB:
 		return NewVariableWidthColumn(b, api.SQL_C_DBCHAR, size), nil
+	case api.SQL_XML:
+		return NewVariableWidthColumn(b, api.SQL_C_BINARY, 31457280), nil
 	default:
 		return nil, fmt.Errorf("unsupported column type %d", sqltype)
 	}
@@ -192,7 +194,7 @@ func (c *BaseColumn) Value(buf []byte) (driver.Value, error) {
 		return r, nil
 	case api.SQL_C_TYPE_TIME:
 		t := (*api.SQL_TIME_STRUCT)(p)
-		r := time.Date(0, 0, 0,
+		r := time.Date(1, 1, 1,
 			int(t.Hour),
 			int(t.Minute),
 			int(t.Second),
@@ -243,7 +245,11 @@ func NewVariableWidthColumn(b *BaseColumn, ctype api.SQLSMALLINT, colWidth api.S
 		l++    // room for null-termination character
 		l *= 2 // wchars take 2 bytes each
 	case api.SQL_C_CHAR:
-		l++ // room for null-termination character
+		if b.SType == api.SQL_DECIMAL {
+			l = l+2 // adding 2 as decimal has '.' which takes 1 byte
+		} else {
+			l++ // room for null-termination character
+		}
 	case api.SQL_C_BINARY:
 		// nothing to do
 	default:

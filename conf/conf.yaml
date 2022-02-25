@@ -1,0 +1,4 @@
+module:
+  - name: db2_localhost
+    uid: test
+    pid: test
