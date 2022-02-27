@@ -16,7 +16,6 @@ install_base=$(dirname "$PWD")     # 安装根目录
 # 通用前置
 # ulimit 设定
 ulimit -n 100000
-export LD_LIBRARY_PATH=/usr/local/easyops/ens_client/sdk:${LD_LIBRARY_PATH}
 
 # 执行准备
 install_path="${install_base}/${app_folder}/"
@@ -35,18 +34,17 @@ if [[ -f ${custom_metric_path} ]];then
 fi
 
 # 连接db2依赖的sdk
-sdk_path=${install_path}/src/go_ibm_db
+sdk_path=${install_path}/src/clidriver
 if [[ ! -d ${sdk_path} ]]; then
   cd $install_path/src/
-  tar_path=$(ls ${install_path}/src/*.tar.gz)
+  tar_path=$(ls ${install_path}/src/linuxx64_odbc_cli.tar.gz)
   tar -zxvf ${tar_path}
-  mv $install_path/src/linuxx64_odbc_cli $sdk_path
 fi
 
 # 设置环境变量
-export CGO_LDFLAGS=-L${sdk_path}/clidriver/lib
-export CGO_CFLAGS=-I${sdk_path}/clidriver/include
-export LD_LIBRARY_PATH=${sdk_path}/clidriver/lib:$LD_LIBRARY_PATH
+export CGO_LDFLAGS=-L${sdk_path}/lib
+export CGO_CFLAGS=-I${sdk_path}/include
+export LD_LIBRARY_PATH=${sdk_path}/lib:$LD_LIBRARY_PATH
 
 # 启动命令
 start_cmd="/${install_path}bin/db2_exporter --default.metrics ${default_metric_path} ${custom_metric_flag} > /dev/null 2>log/${app_folder}.log &"
